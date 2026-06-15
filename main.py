@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
 RentBuddy - 租房小白 AI 助手
-启动入口
+
+启动方式：
+  GUI 模式:  python main.py
+  API 模式:  python main.py --api
+  指定端口:  python main.py --api --port 8080
 """
 import sys
 import os
+import argparse
 
-# 确保项目根目录在 sys.path 中
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
@@ -14,40 +18,38 @@ sys.path.insert(0, ROOT)
 def check_dependencies():
     """检查依赖"""
     missing = []
-
-    # 检查 ollama 包
     try:
         import ollama
     except ImportError:
-        missing.append("ollama (pip install ollama)")
+        missing.append("ollama")
 
-    # 检查 Pillow
+    try:
+        import fastapi
+    except ImportError:
+        missing.append("fastapi")
+
+    try:
+        import uvicorn
+    except ImportError:
+        missing.append("uvicorn")
+
     try:
         from PIL import Image
     except ImportError:
-        missing.append("Pillow (pip install Pillow)")
+        missing.append("Pillow")
 
-    # 检查 PyPDF2
     try:
         from PyPDF2 import PdfReader
     except ImportError:
-        missing.append("PyPDF2 (pip install PyPDF2)")
+        missing.append("PyPDF2")
 
     if missing:
-        print("⚠️ 缺少以下依赖，正在尝试安装...")
+        print(f"⚠️ 缺少依赖: {', '.join(missing)}")
+        print("正在安装...")
         for pkg in missing:
-            pkg_name = pkg.split(" ")[0].lower()
+            pkg_name = pkg.lower()
             os.system(f"{sys.executable} -m pip install {pkg_name}")
-
-    # tkinter 通常随 Python 自带
-    try:
-        import tkinter
-    except ImportError:
-        print("❌ tkinter 未安装，请通过系统包管理器安装")
-        print("  Ubuntu/Debian: sudo apt-get install python3-tk")
-        print("  Fedora: sudo dnf install python3-tkinter")
-        print("  macOS: brew install python-tk")
-        sys.exit(1)
+        print("✅ 依赖安装完成\n")
 
 
 def check_ollama():
@@ -61,15 +63,47 @@ def check_ollama():
             return True
     except:
         pass
-
-    print("⚠️ Ollama 未连接。")
-    print("  请确保 Ollama 已启动: https://ollama.ai")
-    print("  并拉取模型: ollama pull qwen2.5")
-    print("  程序仍可启动，但对话功能需 Ollama 支持。")
+    print("⚠️ Ollama 未连接。对话功能需要 Ollama 支持。")
+    print("  安装: https://ollama.ai")
+    print("  拉取模型: ollama pull qwen2.5")
     return False
 
 
+def run_api(host: str = "0.0.0.0", port: int = 8000):
+    """启动 API 服务"""
+    import uvicorn
+    print(f"\n🚀 启动 API 服务: http://{host}:{port}")
+    print(f"📖 API 文档: http://{host}:{port}/docs\n")
+    uvicorn.run(
+        "api.app:app",
+        host=host,
+        port=port,
+        reload=False,
+        log_level="info",
+    )
+
+
+def run_gui():
+    """启动 GUI 模式"""
+    try:
+        import tkinter
+    except ImportError:
+        print("❌ tkinter 未安装")
+        sys.exit(1)
+
+    from src.gui.app import RentBuddyApp
+    app = RentBuddyApp()
+    app.run()
+
+
 def main():
+    parser = argparse.ArgumentParser(description="🏠 RentBuddy - 租房小白 AI 助手")
+    parser.add_argument("--api", action="store_true", help="以 API 服务模式启动")
+    parser.add_argument("--host", default="0.0.0.0", help="API 服务监听地址")
+    parser.add_argument("--port", type=int, default=8000, help="API 服务端口")
+    parser.add_argument("--gui", action="store_true", help="以 GUI 模式启动（默认）")
+    args = parser.parse_args()
+
     print("=" * 50)
     print("🏠 RentBuddy - 租房小白 AI 助手")
     print("=" * 50)
@@ -78,9 +112,10 @@ def main():
     check_dependencies()
     check_ollama()
 
-    from src.gui.app import RentBuddyApp
-    app = RentBuddyApp()
-    app.run()
+    if args.api:
+        run_api(args.host, args.port)
+    else:
+        run_gui()
 
 
 if __name__ == "__main__":

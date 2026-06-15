@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  rentbuddy-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - rentbuddy-data:/app/data
+    environment:
+      - RENTBUDDY_DB_PATH=/app/data/rentbuddy.db
+      # 如果用云端 LLM，在此配置 API Key
+      # - DEEPSEEK_API_KEY=sk-xxx
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Ollama 服务（如果需要本地运行 LLM）
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # 如果有 GPU，取消下面的注释
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  rentbuddy-data:
+  ollama-data:

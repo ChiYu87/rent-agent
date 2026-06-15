@@ -2,6 +2,7 @@
 
 ReAct = Reasoning + Acting
 循环：思考(Thought) → 行动(Action) → 观察(Observation) → ... → 回答(Answer)
+支持多用户隔离，每个用户独立的 Memory 和 session。
 """
 import re
 import json
@@ -9,10 +10,9 @@ import uuid
 from .llm import LLM
 from .memory import Memory
 from .tools import get_tool_by_name, get_tools_description
+from ..utils.db import Database
 from ..utils.config import Config
 
-
-# ==================== 系统提示词 ====================
 
 SYSTEM_PROMPT = """你是「租房小白助手 RentBuddy」，一个专门帮助租房新手的 AI 助手。
 
@@ -48,21 +48,26 @@ Answer: 最终回答用户
 
 
 class ReActAgent:
-    """ReAct Agent 引擎"""
+    """ReAct Agent - 支持多用户"""
 
-    def __init__(self):
+    def __init__(self, user_id: str = "default"):
+        self.user_id = user_id
         self.llm = LLM()
-        self.memory = Memory()
+        self.memory = Memory(user_id)
+        self.db = Database()
         self.session_id = str(uuid.uuid4())[:8]
         self.max_iterations = Config().get("agent.max_iterations", 5)
         self.tools_desc = get_tools_description()
 
     def run(self, user_input: str, stream: bool = False) -> str:
         """执行一轮对话"""
-        # 1. 构建上下文
+        # 1. 确保用户存在
+        self.db.ensure_user(self.user_id)
+
+        # 2. 构建上下文
         context = self.memory.get_context(self.session_id, user_input)
 
-        # 2. 构建 ReAct 提示
+        # 3. 构建 ReAct 提示
         react_prompt = f"""{SYSTEM_PROMPT}
 
 {self.tools_desc}
@@ -78,12 +83,9 @@ class ReActAgent:
 
         messages = [{"role": "system", "content": react_prompt}]
 
-        # 3. ReAct 循环
+        # 4. ReAct 循环
         for iteration in range(self.max_iterations):
-            if stream:
-                response = self.llm.chat(messages)
-            else:
-                response = self.llm.chat(messages)
+            response = self.llm.chat(messages)
 
             # 解析 ReAct 输出
             action_match = re.search(r'Action:\s*(\w+)\((.+?)\)', response, re.DOTALL)
@@ -91,7 +93,6 @@ class ReActAgent:
             if not action_match:
                 # 没有 Action，直接返回
                 answer = self._extract_answer(response)
-                # 保存对话
                 self.memory.save_interaction(self.session_id, user_input, answer)
                 return answer
 
@@ -128,6 +129,7 @@ class ReActAgent:
 
     def run_stream(self, user_input: str):
         """流式输出"""
+        self.db.ensure_user(self.user_id)
         context = self.memory.get_context(self.session_id, user_input)
 
         react_prompt = f"""{SYSTEM_PROMPT}
@@ -146,21 +148,17 @@ class ReActAgent:
         messages = [{"role": "system", "content": react_prompt}]
 
         for iteration in range(self.max_iterations):
-            # 收集完整响应
             full_response = ""
             for chunk in self.llm.chat_stream(messages):
                 full_response += chunk
                 yield chunk
 
-            # 解析是否需要工具
             action_match = re.search(r'Action:\s*(\w+)\((.+?)\)', full_response, re.DOTALL)
             if not action_match:
-                # 无工具调用，结束
                 answer = self._extract_answer(full_response)
                 self.memory.save_interaction(self.session_id, user_input, answer)
                 return
 
-            # 执行工具
             tool_name = action_match.group(1)
             tool_params_str = action_match.group(2)
             tool_fn = get_tool_by_name(tool_name)
@@ -185,8 +183,45 @@ class ReActAgent:
         answer = self._extract_answer(full_response)
         self.memory.save_interaction(self.session_id, user_input, answer)
 
+    def review_contract_text(self, contract_text: str) -> dict:
+        """合同审查（API 专用，返回结构化结果）"""
+        from .tools import review_contract
+
+        # 1. 本地规则引擎
+        local_result = review_contract(contract_text)
+
+        # 2. LLM 深度审查
+        prompt = f"""请仔细审查以下租房合同，找出所有对租客不利的条款：
+
+{contract_text}
+
+请从以下角度审查：
+1. 押金条款是否合理
+2. 违约责任是否对等
+3. 维修责任归属是否明确
+4. 有无霸王条款
+5. 转租条款是否合理
+6. 水电费等其他费用是否明确
+7. 退租条款是否公平
+
+标注风险等级（🚨高风险/⚠️中风险/✅正常）。用中文回答。"""
+
+        llm_result = self.llm.generate(prompt, system=SYSTEM_PROMPT_SHORT)
+
+        # 3. 保存审查记录
+        risk_level = "high" if "🚨" in local_result else ("medium" if "⚠️" in local_result else "low")
+        self.db.add_contract(self.user_id, "", contract_text, {
+            "local": local_result,
+            "llm": llm_result,
+        }, risk_level)
+
+        return {
+            "local_scan": local_result,
+            "ai_review": llm_result,
+            "risk_level": risk_level,
+        }
+
     def _format_context(self, context: list[dict]) -> str:
-        """格式化上下文"""
         lines = []
         for msg in context:
             role = {"system": "系统", "user": "用户", "assistant": "助手"}.get(msg["role"], msg["role"])
@@ -194,13 +229,10 @@ class ReActAgent:
         return "\n".join(lines)
 
     def _extract_answer(self, response: str) -> str:
-        """从 ReAct 输出中提取最终回答"""
-        # 优先提取 Answer: 之后的内容
         answer_match = re.search(r'Answer:\s*(.+)', response, re.DOTALL)
         if answer_match:
             return answer_match.group(1).strip()
 
-        # 如果没有 Answer 标记，去掉 Thought 行返回
         lines = response.split("\n")
         result_lines = []
         in_thought = False
@@ -218,20 +250,18 @@ class ReActAgent:
         return cleaned if cleaned else response.strip()
 
     def _parse_params(self, params_str: str) -> dict:
-        """解析工具参数字符串"""
         params = {}
-        # 匹配 key="value" 或 key=value 格式
         for match in re.finditer(r'(\w+)\s*=\s*"([^"]*)"', params_str):
             params[match.group(1)] = match.group(2)
-
         for match in re.finditer(r'(\w+)\s*=\s*(\d+\.?\d*)', params_str):
             key = match.group(1)
             val = match.group(2)
             if key not in params:
                 params[key] = float(val) if '.' in val else int(val)
-
         return params
 
     def reset_session(self):
-        """重置会话"""
         self.session_id = str(uuid.uuid4())[:8]
+
+
+SYSTEM_PROMPT_SHORT = "你是租房合同审查专家，帮助租客识别不利条款。站在租客立场，实事求是，标注风险。"

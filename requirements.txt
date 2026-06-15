@@ -1,5 +1,18 @@
 # Rent Agent - 租房小白助手
-# 核心依赖（尽量少，优先Python自带）
+# 核心依赖
+
+# LLM & Embedding
 ollama>=0.4.0          # Ollama Python client
+
+# API 服务
+fastapi>=0.110.0       # REST API 框架
+uvicorn[standard]>=0.30.0  # ASGI 服务器
+pydantic>=2.0.0        # 数据校验
+
+# 工具库
 Pillow>=10.0.0         # 图片处理（合同上传）
 PyPDF2>=3.0.0          # PDF解析
+python-multipart>=0.0.9 # 文件上传
+
+# 数据库（MVP用SQLite，生产换PostgreSQL+pgvector）
+# sqlalchemy>=2.0.0     # 暂不需要，MVP用原生SQLite
