@@ -1,0 +1,5 @@
+# Rent Agent - 租房小白助手
+# 核心依赖（尽量少，优先Python自带）
+ollama>=0.4.0          # Ollama Python client
+Pillow>=10.0.0         # 图片处理（合同上传）
+PyPDF2>=3.0.0          # PDF解析
