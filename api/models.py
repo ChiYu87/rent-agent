@@ -1,6 +1,6 @@
 """Pydantic 数据模型"""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Any
 
 
 # ==================== 对话 ====================
@@ -25,9 +25,22 @@ class ContractReviewRequest(BaseModel):
 
 
 class ContractReviewResponse(BaseModel):
-    local_scan: str
-    ai_review: str
-    risk_level: str  # high / medium / low
+    """合同审查完整报告"""
+    score: int = Field(0, description="风险评分 0-100")
+    level: str = Field("🟢安全", description="风险等级：🟢安全/🟡需谨慎/🟠风险较大/🔴危险")
+    summary: str = Field("", description="概要")
+    risks: list[dict] = Field(default_factory=list, description="风险列表")
+    missing: list[dict] = Field(default_factory=list, description="缺失条款")
+    contract_summary: dict = Field(default_factory=dict, description="合同基本信息摘要")
+    contract_info: dict = Field(default_factory=dict, description="完整提取信息")
+    ocr_result: Optional[dict] = Field(None, description="OCR 结果（仅图片上传时有）")
+    # AI 深度审查
+    ai_review: Any = Field("", description="AI 深度审查结果：str 或 {summary, key_risks, negotiation_tips}")
+    # 谈判话术
+    negotiation_speech: list[dict] = Field(default_factory=list, description="谈判话术列表")
+    # 兼容旧接口
+    local_scan: str = ""
+    risk_level: str = "low"
 
 
 # ==================== 费用计算 ====================

@@ -185,41 +185,20 @@ class ReActAgent:
 
     def review_contract_text(self, contract_text: str) -> dict:
         """合同审查（API 专用，返回结构化结果）"""
-        from .tools import review_contract
+        from .risk_engine import ContractReviewer
 
-        # 1. 本地规则引擎
-        local_result = review_contract(contract_text)
+        # 1. 使用新的结构化审查引擎
+        reviewer = ContractReviewer(llm=self.llm)
+        report = reviewer.review(contract_text, user_id=self.user_id, db=self.db)
 
         # 2. LLM 深度审查
-        prompt = f"""请仔细审查以下租房合同，找出所有对租客不利的条款：
+        try:
+            llm_result = reviewer.review_with_llm(contract_text)
+            report["ai_review"] = llm_result
+        except Exception as e:
+            report["ai_review"] = f"AI 审查暂不可用: {e}"
 
-{contract_text}
-
-请从以下角度审查：
-1. 押金条款是否合理
-2. 违约责任是否对等
-3. 维修责任归属是否明确
-4. 有无霸王条款
-5. 转租条款是否合理
-6. 水电费等其他费用是否明确
-7. 退租条款是否公平
-
-标注风险等级（🚨高风险/⚠️中风险/✅正常）。用中文回答。"""
-
-        llm_result = self.llm.generate(prompt, system=SYSTEM_PROMPT_SHORT)
-
-        # 3. 保存审查记录
-        risk_level = "high" if "🚨" in local_result else ("medium" if "⚠️" in local_result else "low")
-        self.db.add_contract(self.user_id, "", contract_text, {
-            "local": local_result,
-            "llm": llm_result,
-        }, risk_level)
-
-        return {
-            "local_scan": local_result,
-            "ai_review": llm_result,
-            "risk_level": risk_level,
-        }
+        return report
 
     def _format_context(self, context: list[dict]) -> str:
         lines = []

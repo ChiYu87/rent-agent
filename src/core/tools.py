@@ -222,69 +222,63 @@ def get_checklist(phase: str = "看房中") -> str:
 
 @tool(
     name="review_contract",
-    description="审查合同条款（本地规则引擎）",
+    description="审查合同条款（本地规则引擎 + 结构化输出）",
     params=[
         {"name": "contract_text", "type": "string", "description": "合同文本内容"},
     ]
 )
 def review_contract(contract_text: str) -> str:
-    """本地合同审查 - 关键词规则"""
-    risks = []
-    warnings = []
-    city = "北京"  # TODO: 从用户配置获取
+    """合同审查（使用新的结构化引擎）"""
+    from .risk_engine import ContractReviewer
+    reviewer = ContractReviewer()
+    report = reviewer.review(contract_text, enable_ai_review=False)
 
-    contract_text_lower = contract_text.lower()
+    # 格式化为可读文本返回
+    lines = []
+    score = report["score"]
+    level = report["level"]
+    lines.append(f"风险评分：{score}/100，等级：{level}")
+    lines.append("")
 
-    # 高风险条款
-    risk_patterns = [
-        (r"押金概不退还", "🚨 押金不退条款 - 违法！押金必须据实结算后退还"),
-        (r"提前(\d+)天.*通知.*违约金", "🚨 提前通知违约金过高"),
-        (r"每天?.*滞纳金|日利率", "🚨 滞纳金条款 - 每日滞纳金可能违法"),
-        (r"不得.*养宠|禁止养宠物", "⚠️ 禁养宠物 - 民法典保护饲主权利，此条款可能被判无效"),
-        (r"单方.*解除|随时解除", "🚨 单方解除权 - 房东可随时解约的条款违法"),
-        (r"第三方.*入住|不得留宿他人", "⚠️ 限制同住人 - 合理探访不受限"),
-        (r"维修.*租客.*承担|设施.*租客负责", "⚠️ 维修责任转嫁 - 正常使用损坏应由房东维修"),
-    ]
+    if report.get("risks"):
+        high = [r for r in report["risks"] if r["level"] == "high"]
+        medium = [r for r in report["risks"] if r["level"] == "medium"]
+        low = [r for r in report["risks"] if r["level"] == "low"]
+        if high:
+            lines.append("### 高风险条款")
+            for r in high:
+                lines.append(f"- [{r['id']}] {r['title']}")
+                if r.get('suggestion'):
+                    lines.append(f"  建议：{r['suggestion']}")
+            lines.append("")
+        if medium:
+            lines.append("### 中风险条款")
+            for r in medium:
+                lines.append(f"- [{r['id']}] {r['title']}")
+            lines.append("")
+        if low:
+            lines.append("### 低风险条款")
+            for r in low:
+                lines.append(f"- [{r['id']}] {r['title']}")
+            lines.append("")
 
-    for pattern, msg in risk_patterns:
-        if re.search(pattern, contract_text):
-            risks.append(msg)
+    if report.get("missing"):
+        lines.append("### 缺失条款")
+        for m in report["missing"]:
+            imp = m.get('importance', '')
+            lines.append(f"- {m['field']} ({imp})")
+        lines.append("")
 
-    # 中风险
-    warn_patterns = [
-        (r"转租.*房东同意", "⚠️ 转租需房东书面同意，警惕二房东"),
-        (r"押二|押金.*2个月", "⚠️ 押金2个月偏高，资金压力较大"),
-        (r"中介费.*(一|1).*个月以上", "⚠️ 中介费偏高，正常为半个月到一个半月租金"),
-        (r"水费.*电费.*[无上].*限", "⚠️ 水电费无上限可能导致账单失控"),
-        (r"宽带.*网络.*自办|自装", "⚠️ 宽带自办理注意费用归属"),
-    ]
+    if not report.get("risks") and not report.get("missing"):
+        lines.append("✅ 合同暂未发现明显违法条款")
+        lines.append("建议仍通过 AI 详细审查或人工核对标准合同。")
 
-    for pattern, msg in warn_patterns:
-        if re.search(pattern, contract_text):
-            warnings.append(msg)
+    lines.append("### 建议")
+    lines.append("- 遇到高风险条款建议拒绝签署，或要求修改")
+    lines.append("- 合同签字前务必仔细阅读，有疑问不签")
+    lines.append("- 可要求房东提供房产证原件和身份证明")
 
-    if not risks and not warnings:
-        return "✅ 合同暂未发现明显违法条款\n\n" \
-               "建议仍通过 AI 详细审查或人工核对标准合同。"
-
-    result = "## 📋 合同风险审查结果\n\n"
-    if risks:
-        result += "### 🚨 高风险条款\n"
-        for r in risks:
-            result += f"- {r}\n"
-        result += "\n"
-    if warnings:
-        result += "### ⚠️ 中风险条款\n"
-        for w in warnings:
-            result += f"- {w}\n"
-        result += "\n"
-
-    result += "### 💡 建议\n"
-    result += "- 遇到高风险条款建议拒绝签署，或要求修改\n"
-    result += "- 合同签字前务必仔细阅读，有疑问不签\n"
-    result += "- 可要求房东提供房产证原件和身份证明\n"
-
-    return result
+    return "\n".join(lines)
 
 
 @tool(

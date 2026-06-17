@@ -16,7 +16,7 @@
         <p>租房子遇到问题？问我！</p>
         <div class="quick-actions">
           <van-button size="small" round @click="sendQuick('第一次租房，要注意什么？')">租房新手指南</van-button>
-          <van-button size="small" round @click="sendQuick('帮我看看这个合同条款有没有坑')">合同审查</van-button>
+          <van-button size="small" round @click="goContract">帮我审查合同</van-button>
           <van-button size="small" round @click="sendQuick('月租3000真实成本是多少？')">费用计算</van-button>
           <van-button size="small" round @click="sendQuick('看房要检查哪些？')">看房清单</van-button>
         </div>
@@ -68,7 +68,10 @@
 
 <script setup>
 import { ref, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { chatStream, chat, newSession } from '../utils/api'
+
+const router = useRouter()
 
 const messages = ref([])
 const inputText = ref('')
@@ -124,6 +127,10 @@ async function sendMessage() {
 function sendQuick(text) {
   inputText.value = text
   sendMessage()
+}
+
+function goContract() {
+  router.push('/contract')
 }
 
 function clearChat() {

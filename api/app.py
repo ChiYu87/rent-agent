@@ -5,6 +5,12 @@ FastAPI 应用入口，整合所有路由，同时 serve 前端静态文件。
 """
 import sys
 import os
+import io
+
+# Windows GBK 终端兼容：强制 UTF-8 输出
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # 确保项目根目录在 sys.path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -113,7 +119,7 @@ async def startup():
         print("⚠️ 前端未构建，请运行: cd frontend && npm run build")
 
     print()
-    print("🌐 H5 界面: http://localhost:8000")
-    print("📖 API 文档: http://localhost:8000/docs")
-    print("📖 ReDoc:    http://localhost:8000/redoc")
+    print("  H5 界面: http://localhost:8080")
+    print("  API 文档: http://localhost:8080/docs")
+    print("  ReDoc:    http://localhost:8080/redoc")
     print()

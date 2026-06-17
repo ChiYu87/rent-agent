@@ -19,6 +19,7 @@ class LLM:
         self.model = cfg.get("llm.model", "")
         self.temperature = cfg.get("llm.temperature", 0.7)
         self.max_tokens = cfg.get("llm.max_tokens", 2048)
+        self._override_timeout = None
 
         # 自动选择可用模型
         if not self.model:
@@ -44,6 +45,11 @@ class LLM:
     def chat(self, messages: list[dict], stream: bool = False) -> str:
         """同步对话"""
         url = f"{self.base_url}/api/chat"
+        # 超时: (connect_timeout, read_timeout)
+        if self._override_timeout:
+            req_timeout = (3, self._override_timeout)
+        else:
+            req_timeout = (5, 120)
         payload = {
             "model": self.model,
             "messages": messages,
@@ -54,18 +60,25 @@ class LLM:
             }
         }
         try:
-            resp = requests.post(url, json=payload, timeout=120)
+            resp = requests.post(url, json=payload, timeout=req_timeout)
             resp.raise_for_status()
             data = resp.json()
             return data.get("message", {}).get("content", "")
         except requests.exceptions.ConnectionError:
             return "⚠️ 无法连接 Ollama，请确保 Ollama 已启动并拉取了模型。"
+        except requests.exceptions.Timeout:
+            return "⚠️ LLM 调用超时，请稍后重试。"
         except Exception as e:
             return f"⚠️ LLM 调用失败: {e}"
 
     def chat_stream(self, messages: list[dict]):
         """流式对话，yield 每个token"""
         url = f"{self.base_url}/api/chat"
+        # 流式连接超时短一些，读取超时用默认
+        if self._override_timeout:
+            req_timeout = (3, self._override_timeout)
+        else:
+            req_timeout = (5, 180)
         payload = {
             "model": self.model,
             "messages": messages,
@@ -76,7 +89,7 @@ class LLM:
             }
         }
         try:
-            with requests.post(url, json=payload, stream=True, timeout=120) as resp:
+            with requests.post(url, json=payload, stream=True, timeout=req_timeout) as resp:
                 resp.raise_for_status()
                 for line in resp.iter_lines():
                     if line:
@@ -88,16 +101,25 @@ class LLM:
                             break
         except requests.exceptions.ConnectionError:
             yield "⚠️ 无法连接 Ollama，请确保 Ollama 已启动。"
+        except requests.exceptions.Timeout:
+            yield "⚠️ LLM 调用超时，请稍后重试。"
         except Exception as e:
             yield f"⚠️ LLM 调用失败: {e}"
 
-    def generate(self, prompt: str, system: str = "") -> str:
-        """简单生成接口"""
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-        return self.chat(messages)
+    def generate(self, prompt: str, system: str = "", timeout: int | None = None) -> str:
+        """简单生成接口，timeout 覆盖默认超时"""
+        saved_timeout = self.max_tokens
+        try:
+            if timeout is not None:
+                # 临时缩短 requests 超时
+                self._override_timeout = timeout
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            return self.chat(messages)
+        finally:
+            self._override_timeout = None
 
     def check_connection(self) -> bool:
         """检查 Ollama 是否可用"""

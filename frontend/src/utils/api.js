@@ -122,6 +122,34 @@ export async function reviewContract(contractText) {
   })
 }
 
+// 合同图片审查（新版结构化）
+export async function reviewContractImages(files) {
+  const formData = new FormData()
+  files.forEach(f => formData.append('files', f))
+  const resp = await fetch(`${API_BASE}/contract/review/upload?user_id=${getUserId()}`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!resp.ok) throw new Error('审查失败')
+  const data = await resp.json()
+  // 兼容新旧字段：ai_review / negotiation_speech 可能不存在
+  if (!data.ai_review) data.ai_review = null
+  if (!data.negotiation_speech) data.negotiation_speech = null
+  return data
+}
+
+// 合同文本审查（新版结构化）
+export async function reviewContractText(contractText) {
+  const data = await request('POST', '/contract/review/text', {
+    user_id: getUserId(),
+    contract_text: contractText,
+  })
+  // 兼容新旧字段：ai_review / negotiation_speech 可能不存在
+  if (!data.ai_review) data.ai_review = null
+  if (!data.negotiation_speech) data.negotiation_speech = null
+  return data
+}
+
 export async function uploadContract(file) {
   const formData = new FormData()
   formData.append('file', file)
@@ -132,6 +160,20 @@ export async function uploadContract(file) {
   })
   if (!resp.ok) throw new Error('上传失败')
   return resp.json()
+}
+
+// 获取谈判话术（按风险 ID）
+export async function getNegotiationSpeech(riskIds) {
+  const ids = Array.isArray(riskIds) ? riskIds.join(',') : riskIds
+  return request('GET', '/contract/negotiation-speech', null, { risk_ids: ids })
+}
+
+// AI 深度审查（按需触发，带超时保护）
+export async function aiReviewContract(contractText) {
+  return request('POST', '/contract/ai-review', {
+    user_id: getUserId(),
+    contract_text: contractText,
+  })
 }
 
 export async function getContractList(limit = 10) {
@@ -210,7 +252,7 @@ export async function healthCheck() {
 
 export default {
   chat, chatStream, newSession,
-  reviewContract, uploadContract, getContractList,
+  reviewContract, reviewContractImages, reviewContractText, getNegotiationSpeech, aiReviewContract, uploadContract, getContractList,
   calcCost, calcDeposit,
   getChecklist, saveViewing, getViewingList,
   checkBlacklist, reportBlacklist,
